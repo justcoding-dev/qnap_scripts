@@ -29,7 +29,7 @@ For example, if your backup drive is mounted as _/share/MyPersonalBackup_:
 
 ```
 cp -r /path/to/this/repo/config.example /share/MyPersonalBackup/.config
-nano /share/MyPersonalBackup/.config
+nano /share/MyPersonalBackup/.config/shares
 ```
 
 Then run the script in superdry mode to get a feeling of what it will do:
