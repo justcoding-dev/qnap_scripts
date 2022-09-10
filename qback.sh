@@ -90,6 +90,11 @@ vmail,root@mailserver:/var,1,mail
 In this example, inthe backup, there will be folders 'Media', 'homes', 'vmail'. 
 If no source path is given, the share will be copied from '/share'.
 
+If the source path is given as 'user@host:/path', it is possible to pull a backup 
+from a remote QNAP server. Remember that the user must be an administrator, otherwise
+the NAS will not allow the necessary SSH access. It is advised to setup ssh keys 
+to avoid having to enter the password for every backed up share.
+
 EOT
 
 }
