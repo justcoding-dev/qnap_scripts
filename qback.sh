@@ -8,11 +8,6 @@
 ###
 ### Script stores incremental backups in dated directories
 ###
-### Auto-Configuring Variant:
-### Reads connected harddrives names backup-???
-### Checks for presence of .backup/shares file
-### Reads names of shares from the file and backups share
-###
 ### Written by Joern Stein <dev@justcoding.de> 2014-2022
 #################################################################
 
