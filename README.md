@@ -28,7 +28,7 @@ and create your own _shares_ file in the _.config_ folder.
 For example, if your backup drive is mounted as _/share/MyPersonalBackup_:
 
 ```
-cp /path/to/this/repo/config.example /share/MyPersonalBackup/.config
+cp -r /path/to/this/repo/config.example /share/MyPersonalBackup/.config
 nano /share/MyPersonalBackup/.config
 ```
 
