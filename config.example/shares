@@ -1,0 +1,8 @@
+# share,source,type,subdir
+#                     \_ Subdirectory where the share should be backed up to. Must not be in the list of share names
+#               \_______ 0 or "" for incremental backups, m for mirror
+#         \_____________ Where to find the original, can be /share or user@host:/path
+#   \___________________ Name of the folder to backup# Line format
+Media
+homes,user@192.168.1.1:
+vmail,root@mailserver:/var,1,mail
