@@ -49,10 +49,12 @@ $0 - Backup some directories to a backup path
 
 This script is intended to backup shares on a QNAP server to some external
 storage, e.g. an attached disk. On the backup target disk there must be a 
-directory called '.config' which holds two files:
+directory called '.config' which holds these files:
 
 	shares  - the list of shares to backup, excluding the leading '/share/'
 	exclude - List of files to exclude from the backup
+	share.preflight - bash script that will be run before backing up share 'share'
+	share.postflight - bash script that will be run after backing up share 'share'
 
 Information about the shares to be backed up is stored in these two files. A new
 directory 'store' will be created on the backup disk to store the backed up shares.
@@ -71,7 +73,7 @@ $0 [ --dryrun | -d | -dd | --superdry | --delete ] BackupPath1 [ BackupPath2 ...
 
 	-dd,      	--superdry	Go through the backup process without actually changing anything
 	-d,			--dryrun	Make only necessary changes to run 'rsync --dry-run', do not copy data
-    --delete           		Add '--delete' option to rsync, removing stuff from __cur directory
+    	--delete           		Add '--delete' option to rsync, removing stuff from __cur directory
 	BackupPath				List of one or more directories where backups are stored
 
 
@@ -181,8 +183,9 @@ backupToDrive() {
 
 	if [ $fail -eq 0 ]
 	then
-		echo "=== Moving temporary target $tmpTarget to $drive/store/$currDate"
-		[ -z "$DRYRUN" ] && mv "$tmpTarget" "$drive/store/$currDate"
+		tmpTarget="$store/__cur"
+		echo "=== Moving temporary target $tmpTarget to $store/$currDate"
+		[ -z "$DRYRUN" ] && mv "$tmpTarget" "$store/$currDate"
 	fi
 
 }
@@ -199,6 +202,12 @@ backupShare() {
 	if [ -z "$share" ] 
 	then
 		echo "--- Share '$share' undefined"
+		return 1
+	fi
+
+	if (echo $share | grep '/') 
+	then
+		echo ERROR: '/' in share name is not supported
 		return 1
 	fi
 
@@ -249,10 +258,27 @@ backupShare() {
 	# Create a temporary backup directory if it does not exist yet
 	[ -d "$target" ] || [ -n "$SUPERDRY" ] || mkdir -p "$target"
 
+	# Run the preflight script if it exists
+	preflight="$config/$share.preflight"
+	if [ -f "$preflight" ]
+	then 
+		echo "==  Running preflight script $preflight"
+		[ -z "$SUPERDRY" ] && bash $preflight
+	fi
+
 	                 echo rsync -vrltD --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
 	[ -z "$SUPERDRY" ] && rsync -vrltD --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
 
   	[ $? -ne 0 ] && fail=1
+
+	# Run the postflight script if it exists
+	postflight="$config/$share.postflight"
+	if [ -f "$postflight" ]
+	then 
+		echo "==  Running postflight script $postflight"
+		[ -z "$SUPERDRY" ] && bash $postflight
+	fi
+
 
 }
 
