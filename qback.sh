@@ -39,7 +39,24 @@ SUPERDRY=""
 # Delete non-existing files from a previous run from __cur directory
 DELETE=""
 
+# Run rsync as root - make sure /etc/sudoers is configured accrdingly
+SUDO=""
+
+# Local rsync command to use
+RSYNC="rsync"
+
+# Local grep command
+GREP="grep"
+
+# Local ssh command
+SSH=""
+
 ###
+
+flags="-vrltD"
+
+ignorePerms=""
+# "--no-perms --no-owner --no-group --no-times"
 
 
 usage() {
@@ -71,31 +88,40 @@ Usage:
 
 $0 [ --dryrun | -d | -dd | --superdry | --delete ] BackupPath1 [ BackupPath2 ... ]
 
-	-dd,      	--superdry	Go through the backup process without actually changing anything
-	-d,			--dryrun	Make only necessary changes to run 'rsync --dry-run', do not copy data
-    	--delete           		Add '--delete' option to rsync, removing stuff from __cur directory
-	BackupPath				List of one or more directories where backups are stored
+	-dd,      	--superdry		Go through the backup process without actually changing anything
+	-d,			--dryrun		Make only necessary changes to run 'rsync --dry-run', do not copy data
+	--delete         	  		Add '--delete' option to rsync, removing stuff from __cur directory
+    --sudo                      Run rsync commands as root
+    --rsync="/path/to/rsync"    Specify custom rsync command
+    --ssh="/path/to/ssh"    	Specify custom ssh command
+    --grep="/path/to/grep"		Specify custom grep command
+	BackupPath					List of one or more directories where backups are stored
 
 
 Format of 'shares' file:
 
-# share,source,type,subdir
-#                     \_ Subdirectory where the share should be backed up to. Must 
-						 not be in the list of share names
-#               \_______ 0 or "" for incremental backups, 1 or "m" for mirror
-#         \_____________ Where to find the original, can be /share or user@host:/path
-#   \___________________ Name of the folder to backup# Line format
+# share,source,type,subdir,remoteRsyncPath
+#                            \_ Custom rsync executable on the remote host
+#                    \_________ Subdirectory where the share should be backed up to. Must
+#                               not be in the list of share names
+#               \______________ 0 or "" for incremental backups, m or 1 for mirror
+#        \_____________________ Where to find the original, can be /share or user@host:/path
+#  \___________________________ Name of the folder to backup
 Media
 homes,user@192.168.1.1:
 vmail,root@mailserver:/var,1,mail
+docker,docker@host,,,sudo /opt/bin/rsync
 
-In this example, inthe backup, there will be folders 'Media', 'homes', 'vmail'. 
+In this example, in the backup, there will be folders 'Media', 'homes', 'vmail' and 'docker'.
 If no source path is given, the share will be copied from '/share'.
 
-If the source path is given as 'user@host:/path', it is possible to pull a backup 
+If the source path is given as 'user@host:/path', it is possible to pull a backup
 from a remote QNAP server. Remember that the user must be an administrator, otherwise
-the NAS will not allow the necessary SSH access. It is advised to setup ssh keys 
+the NAS will not allow the necessary SSH access. It is advised to setup ssh keys
 to avoid having to enter the password for every backed up share.
+
+When specifying a custom rsync command with 'sudo', make sure that the user has the right 
+to run the command without entering a password, e.g. 
 
 EOT
 
@@ -149,9 +175,12 @@ backupToDrive() {
 		return
 	fi
 
+	# Collected result code of the rsync commands
+	backupResult=0
+
 	# Parse each line in the shares file
 	input="$config/shares"
-	while IFS="," read -r share source type subdir
+	while IFS="," read -u 9 -r share source type subdir rsyncPath
 	do
 
 		if [ -z "$source" ]
@@ -175,19 +204,24 @@ backupToDrive() {
 		subdir=$(echo "$subdir" | sed 's:^/*::' | sed 's:/*$::')
 		[ -n "$subdir" ] && subdir="/$subdir"
 
-		# echo "Share:  $share, Source: $source, type: $type, subdir: $subdir"
+		[ -n "$rsyncPath" ] && rsyncPath="--rsync-path=$rsyncPath"
 
-		backupShare "$share" "$source" "$type" "$subdir"
+		# echo "Share:  $share, Source: $source, type: $type, subdir: $subdir, rsyncPath: $rsyncPath"
 
-	done < <(grep -P -v '^\s*#' "$input")
+		backupShare "$share" "$source" "$type" "$subdir" "$rsyncPath"
+		backupResult=$(($backupResult+$?))
 
-	if [ $fail -eq 0 ]
+	done 9< <($GREP -P -v '^\s*#' "$input")
+
+	if [ $backupResult -eq 0 ]
 	then
 		tmpTarget="$store/__cur"
 		echo "=== Moving temporary target $tmpTarget to $store/$currDate"
 		[ -z "$DRYRUN" ] && mv "$tmpTarget" "$store/$currDate"
 	fi
 
+	echo "Backup to drive $dr finished with exit code $backupResult"
+	return $backupResult
 }
 
 backupShare() {
@@ -196,13 +230,14 @@ backupShare() {
 	source=$2
 	type=$3
 	subdir=$4
+	rsyncPath=$5
 
 	# echo backup: $share, Source: $source, type: $type, subdir: $subdir
 
 	if [ -z "$share" ] 
 	then
 		echo "--- Share '$share' undefined"
-		return 1
+		return 0
 	fi
 
 	if (echo $share | grep '/') 
@@ -227,9 +262,6 @@ backupShare() {
 	else
 		excludes=""
 	fi
-
-	ignorePerms=""
-	# "--no-perms --no-owner --no-group --no-times"
 
 	if [ "$type" == "1" ]
 	then
@@ -260,26 +292,33 @@ backupShare() {
 
 	# Run the preflight script if it exists
 	preflight="$config/$share.preflight"
-	if [ -f "$preflight" ]
+
+	if [ -f "$preflight" -a -x "$preflight" ]
 	then 
 		echo "==  Running preflight script $preflight"
-		[ -z "$SUPERDRY" ] && bash $preflight
+		[ -z "$SUPERDRY" ] && $preflight 
 	fi
 
-	                 echo rsync -vrltD --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
-	[ -z "$SUPERDRY" ] && rsync -vrltD --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
+	echo $SUDO $RSYNC $flags $SSH $rsyncPath --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
 
-  	[ $? -ne 0 ] && fail=1
+	fail=0
+	if [ -z "$SUPERDRY" ]
+	then
+		$SUDO $RSYNC $flags $SSH $rsyncPath --stats $DRYRUN $DELETE $ignorePerms $excludes $linkDir "$source/$share/" "$target/$share/"
+		[ $? -ne 0 ] && fail=1
+	fi
 
 	# Run the postflight script if it exists
 	postflight="$config/$share.postflight"
-	if [ -f "$postflight" ]
+	if [ -f "$postflight" -a -x "$postflight" ]
 	then 
 		echo "==  Running postflight script $postflight"
-		[ -z "$SUPERDRY" ] && bash $postflight
+		[ -z "$SUPERDRY" ] && $postflight
 	fi
 
-
+	# return the result code from the rsync operation
+	echo "Backing up share $share finished with exit code $fail"
+	return $fail
 }
 
 echo "=== Checking if backup is already running"
@@ -316,9 +355,25 @@ while [ "$1" != "" ]; do
             	DRYRUN="--dry-run"
             	;;
 
- 	--delete)
-		DELETE="--delete"
-		;;
+		--delete)
+				DELETE="--delete"
+				;;
+
+        --sudo)
+                SUDO="sudo"
+                ;;
+		
+		--rsync)
+                [ -x "$VALUE" ] && RSYNC="$VALUE"
+                ;;
+
+        --grep)
+                [ -x "$VALUE" ] && GREP="$VALUE"
+                ;;
+
+        --ssh)
+                SSH="-e $VALUE"
+                ;;
 
         *)
 	    	if [ -d "$1" ]
@@ -343,9 +398,13 @@ while [ "$1" != "" ]; do
 done
 
 # DEBUG
-# echo "DRYRUN: '$DRYRUN'"
-# echo "SUPERDRY: '$SUPERDRY'"
-# echo "DRIVES: '$drives'"
+#echo "DRYRUN: '$DRYRUN'"
+#echo "SUPERDRY: '$SUPERDRY'"
+#echo "DRIVES: '$drives'"
+#echo "SUDO: $SUDO"
+#echo "RSYNC: '$RSYNC'"
+#echo "GREP: '$GREP'"
+#echo "SSH: '$SSH'"
 
 if [ -z "$drives" ]
 then
@@ -354,15 +413,18 @@ then
 	exit 1
 fi
 
+retval=0
+
 # Loop through all the backup targets given on the command line
 for drive in $drives
 do
 	backupToDrive $drive
+	retval=$(($retval+$?))
 done
 
 IFS=$SAVEIFS
 
 endDate=`date +%Y%m%d-%H%M`
-echo === Backup finished $endDate
+echo === Backup finished $endDate with exit code $retval
 
-exit 0
+exit $retval
