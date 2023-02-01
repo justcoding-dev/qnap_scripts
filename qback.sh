@@ -139,7 +139,7 @@ checkIfRunning() {
 
 		echo "Checking PIDFILE $PIDFILE for PID $PID / $PROC"
 
-		if (ps -e -o pid,comm | grep -P "^\s*$PID +$PROC" )
+		if (ps -e -o pid,comm | $GREP -P "^\s*$PID +$PROC" )
 		then
 			echo \*\*\* backup.sh script is still running.
 			echo `ps -e -o pid,comm | grep "$PROC" | grep -v grep`
@@ -321,10 +321,6 @@ backupShare() {
 	return $fail
 }
 
-echo "=== Checking if backup is already running"
-
-checkIfRunning
-
 echo "=== Parsing parameters"
 
 drives=""
@@ -396,6 +392,10 @@ while [ "$1" != "" ]; do
     esac
     shift
 done
+
+echo "=== Checking if backup is already running"
+
+checkIfRunning
 
 # DEBUG
 #echo "DRYRUN: '$DRYRUN'"
