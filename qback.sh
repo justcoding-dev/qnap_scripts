@@ -421,8 +421,8 @@ do
 	backupToDrive $drive
 	retval=$(($retval+$?))
 
-        echo Free space on backup drive
-        df -k | grep "$(readlink -f "$drive")"
+    echo Free space on backup drive
+    df -k | grep "$(readlink -f "$drive")"
 done
 
 IFS=$SAVEIFS
